@@ -67,13 +67,12 @@ router
   .put('/drive/:id/cancel', handler( async (req, res) => {
     const id = req.params.id;
     const modified = Date.now();
-    const snapshot = await db.ref('drives').push(data);
     await db.ref(`/drives/${id}`).update({
       modified,
       active: false
     });
     const value = await db.ref(`/drives/${id}`).once('value');
-    res.json(data || {});
+    res.json(value.val() || {});
   }))
   .get('/drive/:id', handler( async (req, res) => {
     const value = await db.ref(`/drives/${req.params.id}`).once('value');

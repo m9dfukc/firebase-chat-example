@@ -30,7 +30,7 @@ router
       created,
       modified: created
     };
-    db.ref('users').child(username).set(data);
+    db.ref('/users').child(username).set(data);
     res.json(data);
   }))
   .get('/user/:id', handler( async (req, res) => {
@@ -49,18 +49,18 @@ router
 
 router
   .post('/drive', handler( async (req, res) => {
-    const {username} = req.body;
+    const {username, from, to} = req.body;
     const created = Date.now();
     let data = {
       username,
+      from,
+      to,
       created,
       modified: created,
       active: true
     };
-    const snapshot = await db.ref('drives').push(data);
-    await db.ref('users').child(`${username}/drives`).push({
-      id: snapshot.key
-    });
+    const snapshot = await db.ref('/drives').push(data);
+    await db.ref('users').child(`${username}/drives/${snapshot.key}`).set(true);
     data['id'] = snapshot.key;
     res.json(data || {});
   }))
@@ -84,6 +84,53 @@ router
   }))
   .get('/drives/:username', handler( async (req, res) => {
     const ref = db.ref(`/drives`).orderByChild('username').equalTo(req.params.username);
+    const value = await ref.once('value');
+    res.json(value.val() || {});
+  }))
+;
+
+router
+  .post('/chat/:driveId', handler( async (req, res) => {
+    const {driveId} = req.params;
+    const ref = await db.ref(`/drives/${driveId}`).once('value');
+    const drive = ref.val();
+    const sender = req.body.username;
+    const receiver = drive.username;
+    const title = `${drive.from} - ${drive.to}`;
+    const created = Date.now();
+    let data = {
+      title,
+      driveId,
+      created,
+      modified: created
+    };
+    const snapshot = await db.ref('/chats').push(data);
+    await db.ref('users').child(`${sender}/chats/${snapshot.key}`).set(true);
+    await db.ref('users').child(`${receiver}/chats/${snapshot.key}`).set(true);
+    await db.ref('drives').child(`${driveId}/chats/${snapshot.key}`).set(true);
+    data['id'] = snapshot.key;
+    res.json(data || {});
+  }))
+  .post('/chat/:chatId/message', handler( async (req, res) => {
+    const {username, message} = req.body;
+    const {chatId} = req.params;
+    const created = Date.now();
+    let data = {
+      username,
+      message,
+      created,
+      modified: created
+    };
+    const ref = await db.ref(`/chats/${chatId}`).once('value');
+    const chat = ref.val();
+    const snapshot = await db.ref('/chats').child(`${chatId}/messages`).push(data);
+    await db.ref('users').child(`${chat.sender}/chats/${snapshot.key}`).set(true);
+    await db.ref('users').child(`${chat.receiver}/chats/${snapshot.key}`).set(true);
+    data['id'] = snapshot.key;
+    res.json(data || {});
+  }))
+  .get('/chat/:chatId', handler( async (req, res) => {
+    const ref = db.ref(`/chats`).child(req.params.chatId);
     const value = await ref.once('value');
     res.json(value.val() || {});
   }))

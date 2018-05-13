@@ -134,6 +134,12 @@ router
     const value = await ref.once('value');
     res.json(value.val() || {});
   }))
+  .get('/chat/:chatId/message/:messageId', handler( async (req, res) => {
+    const {chatId, messageId} = req.params;
+    const ref = db.ref(`/chats`).child(`${chatId}/messages/${messageId}`);
+    const value = await ref.once('value');
+    res.json(value.val() || {});
+  }))
 ;
 
 

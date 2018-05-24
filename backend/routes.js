@@ -8,7 +8,8 @@ const express  = require('express'),
 
 firebase.initializeApp({
   credential: firebase.credential.cert(config.databaseCredentials),
-  databaseURL: config.databaseURL
+  databaseURL: config.databaseURL,
+  projectId: config.projectId
 });
 
 const db = firebase.database();
@@ -30,8 +31,19 @@ router
       created,
       modified: created
     };
-    db.ref('/users').child(username).set(data);
+    await db.ref('/users').child(username).set(data);
     res.json(data);
+  }))
+  .put('/user/:id/device', handler( async (req, res) => {
+    const {token} = req.body;
+    const {id} = req.params;
+    const data = {
+      deviceToken: token,
+      modified: Date.now()
+    };
+    await db.ref('/users').child(id).update(data);
+    const value = await db.ref('/users').child(id).once('value');
+    res.json(value.val() || {});
   }))
   .get('/user/:id', handler( async (req, res) => {
     const value = await db.ref(`/users/${req.params.id}`).once('value');
@@ -102,6 +114,7 @@ router
       title,
       driveId,
       created,
+      participants: [sender, receiver],
       modified: created
     };
     const snapshot = await db.ref('/chats').push(data);
@@ -115,17 +128,64 @@ router
     const {username, message} = req.body;
     const {chatId} = req.params;
     const created = Date.now();
+    let sender, receiver = undefined;
     let data = {
       username,
       message,
       created,
       modified: created
     };
-    const ref = await db.ref(`/chats/${chatId}`).once('value');
-    const chat = ref.val();
+    const charRef = await db.ref(`/chats/${chatId}`).once('value');
+    const chat = chatRef.val();
+    for (participant in chat.participants) {
+      if (username === participant) sender = participant;
+      else receiver = participant;
+    }
     const snapshot = await db.ref('/chats').child(`${chatId}/messages`).push(data);
-    await db.ref('users').child(`${chat.sender}/chats/${snapshot.key}`).set(true);
-    await db.ref('users').child(`${chat.receiver}/chats/${snapshot.key}`).set(true);
+    await db.ref('users').child(`${sender}/chats/${snapshot.key}`).set(true);
+    await db.ref('users').child(`${receiver}/chats/${snapshot.key}`).set(true);
+
+    const receiverRecordRef = await db.ref('users').child(receiver).once('value');
+    const receiverRecord = receiverRecordRef.val();
+    const pushMessage = {
+      token: receiver.deviceToken,
+      data: {
+        chatId: chatId,
+        messageId: snapshot.key,
+        type: 'chat'
+      },
+      notification: {
+        title: chat.title,
+        body: message,
+        sound: true
+      },
+      android: {
+        ttl: 3600 * 1000, // 1 hour in milliseconds
+        priority: 'hight',
+        notification: {
+          title: chat.title,
+          body: message,
+          icon: 'stock_ticker_update',
+          color: '#f45342'
+        }
+      },
+      apns: {
+        header: {
+         'apns-priority': '10'
+        },
+        payload: {
+          aps: {
+            alert: {
+              title: chat.title,
+              body: message,
+            },
+            badge: 42,
+          }
+        }
+      }
+    };
+    await admin.messaging().send(pushMessage);
+
     data['id'] = snapshot.key;
     res.json(data || {});
   }))
